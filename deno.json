@@ -1,0 +1,10 @@
+{
+  "lint": {
+    "include": ["app/"],
+    "rules": {
+      "import-prefix-missing": "off",
+      "include": ["ban-untagged-todo"],
+      "exclude": ["no-unused-vars"]
+    }
+  }
+}
