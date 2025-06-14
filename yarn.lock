@@ -252,6 +252,36 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.27.1"
 
+"@deno/darwin-arm64@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/darwin-arm64/-/darwin-arm64-2.3.6.tgz#a221e6dba04520e1e9e0d7fe03e471ee8a9091e6"
+  integrity sha512-9G4TrwKeQWUxfGSVnlizSMfGuU4Oc7eku7swv7ol6kVpNGuFoSunYcULMpLSve9/0HACFJdNy3Pf7GWlW0oWOQ==
+
+"@deno/darwin-x64@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/darwin-x64/-/darwin-x64-2.3.6.tgz#09c266a3648648989b3b856ba1248c5020b4dc4f"
+  integrity sha512-TLntEJ1r7mxlv5p6J4xR6xiLEmjV20cnkc+6GOCG1E9sLcL8qrMa5lyXP25tY1WWFie6SX7iJlDtW8BFGXtztg==
+
+"@deno/linux-arm64-glibc@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/linux-arm64-glibc/-/linux-arm64-glibc-2.3.6.tgz#0ab92a6c0bcb71870a55a5ba2617abeaa96dbc94"
+  integrity sha512-XRKA2QfhGINAqPBHo2SZIVTGyjVQVonB1tkiaeWYFrQPaljnZrG1qddb4NJYYBpQA34BVV6DqHtIw82UyfXuDw==
+
+"@deno/linux-x64-glibc@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/linux-x64-glibc/-/linux-x64-glibc-2.3.6.tgz#41f75b4c723b23de79af133f21199bfe61e1aa69"
+  integrity sha512-gpRWNxl9xbGV3PdFnSQAguAbLnFnc8E0akVoSazXHAf+gd7J8kdlx0EIA1Zd28fCaxAkSbBlrZQvoRrixLUyAg==
+
+"@deno/win32-arm64@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/win32-arm64/-/win32-arm64-2.3.6.tgz#a9f88f6fd8713e7484d889b781180d66dc8407bc"
+  integrity sha512-NL8qR/NFNPGb9c0a/d4V5rzPDkLEvbBsTC4dbd30/wIv5teEpvL3fk9BdsgBlfAwVv2pwph3MpG2LTGFfZnPRA==
+
+"@deno/win32-x64@2.3.6":
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/@deno/win32-x64/-/win32-x64-2.3.6.tgz#0c51cb4cf55505297fb6afe02d3c4cfa725b4642"
+  integrity sha512-7gtv7CTRciCkVope6q7AgRZlGF4gqqKgzDdZoyM7bIg/SLJ6iW2CInS5zoFhrL+dmImw58LQOXe0xp3lb/yzGQ==
+
 "@drizzle-team/brocli@^0.10.2":
   version "0.10.2"
   resolved "https://registry.yarnpkg.com/@drizzle-team/brocli/-/brocli-0.10.2.tgz#9757c006a43daaa6f45512e6cf5fabed36fb9da7"
@@ -1262,6 +1292,18 @@ dedent@^1.5.3:
   version "1.6.0"
   resolved "https://registry.yarnpkg.com/dedent/-/dedent-1.6.0.tgz#79d52d6389b1ffa67d2bcef59ba51847a9d503b2"
   integrity sha512-F1Z+5UCFpmQUzJa11agbyPVMbpgT/qA3/SKyJ1jyBgm7dUcUEa8v9JwDkerSQXfakBwFljIxhOJqGkjUwZ9FSA==
+
+deno@^2.3.6:
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/deno/-/deno-2.3.6.tgz#126091b43cc643c1e722132bfaa0826446e25be0"
+  integrity sha512-jf7fIT42W/MTphxxqJgcJKbVvciWFfQxZ8Kl/14aPMZs6du2eWjyS51ZIJvhEh+E4STnngH5XNI3bbCrgBMdGg==
+  optionalDependencies:
+    "@deno/darwin-arm64" "2.3.6"
+    "@deno/darwin-x64" "2.3.6"
+    "@deno/linux-arm64-glibc" "2.3.6"
+    "@deno/linux-x64-glibc" "2.3.6"
+    "@deno/win32-arm64" "2.3.6"
+    "@deno/win32-x64" "2.3.6"
 
 depd@2.0.0, depd@~2.0.0:
   version "2.0.0"

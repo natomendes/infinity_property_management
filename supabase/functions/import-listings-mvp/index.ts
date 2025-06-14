@@ -1,4 +1,8 @@
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2";
+import { createBasicAuthHash } from "../../utils/createBasicAuthHash.ts";
 
 // Define Interfaces
 interface StaysNetTokenResponse {
@@ -36,7 +40,8 @@ interface StaysNetRawListing {
 
 interface StaysNetListingsApiResponse {
   data: StaysNetRawListing[];
-  metadata?: { // Assuming metadata might exist based on common API patterns
+  metadata?: {
+    // Assuming metadata might exist based on common API patterns
     total?: number;
     skip?: number;
     limit?: number;
@@ -62,11 +67,10 @@ interface SupabaseListing {
   longitude?: number;
 }
 
-console.log("Hello from Functions!");
-
 Deno.serve(async (req: Request) => {
   try {
     // Get environment variables
+    const staysNetApiBaseUrl = Deno.env.get("STAYS_NET_API_BASE_URL");
     const staysNetClientId = Deno.env.get("STAYS_NET_CLIENT_ID");
     const staysNetClientSecret = Deno.env.get("STAYS_NET_CLIENT_SECRET");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -79,7 +83,9 @@ Deno.serve(async (req: Request) => {
     }
     if (!staysNetClientSecret) {
       console.error("STAYS_NET_CLIENT_SECRET is not set.");
-      return new Response("STAYS_NET_CLIENT_SECRET is not set.", { status: 400 });
+      return new Response("STAYS_NET_CLIENT_SECRET is not set.", {
+        status: 400,
+      });
     }
     if (!supabaseUrl) {
       console.error("SUPABASE_URL is not set.");
@@ -87,73 +93,56 @@ Deno.serve(async (req: Request) => {
     }
     if (!supabaseServiceRoleKey) {
       console.error("SUPABASE_SERVICE_ROLE_KEY is not set.");
-      return new Response("SUPABASE_SERVICE_ROLE_KEY is not set.", { status: 500 });
+      return new Response("SUPABASE_SERVICE_ROLE_KEY is not set.", {
+        status: 500,
+      });
     }
 
     // Initialize Supabase client
-    const supabase: SupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const supabase: SupabaseClient = createClient(
+      supabaseUrl,
+      supabaseServiceRoleKey
+    );
 
     console.log("Supabase client initialized.");
 
-    // Function to get access token from Stays.net
-    async function getStaysNetAccessToken(): Promise<string> {
-      const tokenUrl = "https://api.stays.net/external/v1/oauth/token"; // Replace with actual Stays.net token URL if different
-      const params = new URLSearchParams();
-      params.append("grant_type", "client_credentials");
-      params.append("client_id", staysNetClientId); // Already checked for existence
-      params.append("client_secret", staysNetClientSecret); // Already checked for existence
-
-      try {
-        const response = await fetch(tokenUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: params,
-        });
-
-        if (!response.ok) {
-          const errorBody = await response.text();
-          console.error(`Stays.net token API error: ${response.status} ${response.statusText}`, errorBody);
-          throw new Error(`Failed to get access token from Stays.net: ${response.status} ${errorBody}`);
-        }
-
-        const tokenData: StaysNetTokenResponse = await response.json();
-        if (!tokenData.access_token) {
-            throw new Error("Access token not found in Stays.net response.");
-        }
-        return tokenData.access_token;
-      } catch (error: any) {
-        console.error("Error fetching Stays.net access token:", error.message);
-        throw error; // Re-throw the error to be caught by the main handler
-      }
-    }
-
     // Get the access token
-    const accessToken: string = await getStaysNetAccessToken();
+    const accessToken: string = createBasicAuthHash(
+      staysNetClientId,
+      staysNetClientSecret
+    );
     // No explicit check for !accessToken needed here due to Promise<string> and error throwing in getStaysNetAccessToken
 
     console.log("Successfully obtained Stays.net access token.");
 
     // Function to fetch listings from Stays.net
-    async function fetchStaysNetListings(token: string, skip: number, limit: number): Promise<StaysNetListingsApiResponse> {
-      const listingsUrl = `https://api.stays.net/external/v1/content/listings?skip=${skip}&limit=${limit}`; // Replace with actual Stays.net listings URL if different
+    async function fetchStaysNetListings(
+      token: string,
+      skip: number,
+      limit: number
+    ): Promise<StaysNetListingsApiResponse> {
+      const listingsUrl = `${staysNetApiBaseUrl}/external/v1/content/listings?skip=${skip}&limit=${limit}`; // Replace with actual Stays.net listings URL if different
       try {
         const response = await fetch(listingsUrl, {
           method: "GET",
           headers: {
-            "Authorization": `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         });
 
         if (!response.ok) {
           const errorBody = await response.text();
-          console.error(`Stays.net listings API error: ${response.status} ${response.statusText}`, errorBody);
-          throw new Error(`Failed to fetch listings from Stays.net: ${response.status} ${errorBody}`);
+          console.error(
+            `Stays.net listings API error: ${response.status} ${response.statusText}`,
+            errorBody
+          );
+          throw new Error(
+            `Failed to fetch listings from Stays.net: ${response.status} ${errorBody}`
+          );
         }
         // Assuming the response JSON structure matches StaysNetListingsApiResponse
-        return await response.json() as StaysNetListingsApiResponse;
+        return (await response.json()) as StaysNetListingsApiResponse;
       } catch (error: any) {
         console.error("Error fetching Stays.net listings:", error.message);
         throw error;
@@ -168,23 +157,32 @@ Deno.serve(async (req: Request) => {
     console.log("Fetching Stays.net listings...");
 
     while (hasMore) {
-      const listingsData: StaysNetListingsApiResponse = await fetchStaysNetListings(accessToken, currentSkip, initialLimit);
+      const listingsData: StaysNetListingsApiResponse =
+        await fetchStaysNetListings(accessToken, currentSkip, initialLimit);
       if (listingsData && listingsData.data && listingsData.data.length > 0) {
         allListings = allListings.concat(listingsData.data);
         currentSkip += listingsData.data.length;
-        if (listingsData.data.length < initialLimit || (listingsData.metadata?.total && allListings.length >= listingsData.metadata.total)) {
+        if (
+          listingsData.data.length < initialLimit ||
+          (listingsData.metadata?.total &&
+            allListings.length >= listingsData.metadata.total)
+        ) {
           hasMore = false;
         }
       } else {
         hasMore = false;
       }
-      console.log(`Fetched ${allListings.length} listings so far. Current skip: ${currentSkip}. Has more: ${hasMore}`);
+      console.log(
+        `Fetched ${allListings.length} listings so far. Current skip: ${currentSkip}. Has more: ${hasMore}`
+      );
     }
 
     console.log(`Total listings fetched: ${allListings.length}`);
 
     // Function to transform Stays.net listing data to Supabase format
-    function transformListingData(staysNetListing: StaysNetRawListing): SupabaseListing {
+    function transformListingData(
+      staysNetListing: StaysNetRawListing
+    ): SupabaseListing {
       return {
         id: staysNetListing._id,
         short_id: staysNetListing.id,
@@ -204,7 +202,8 @@ Deno.serve(async (req: Request) => {
     }
 
     if (allListings.length > 0) {
-      const transformedListings: SupabaseListing[] = allListings.map(transformListingData);
+      const transformedListings: SupabaseListing[] =
+        allListings.map(transformListingData);
       console.log(`Transforming ${transformedListings.length} listings...`);
 
       const { data: upsertedData, error: upsertError } = await supabase
@@ -213,14 +212,18 @@ Deno.serve(async (req: Request) => {
 
       if (upsertError) {
         console.error("Error upserting data to Supabase:", upsertError.message);
-        return new Response(`Failed to upsert data: ${upsertError.message}`, { status: 500 });
+        return new Response(`Failed to upsert data: ${upsertError.message}`, {
+          status: 500,
+        });
       }
 
       // Supabase typings might mean upsertedData is not directly the array of SupabaseListing,
       // but often it is or contains it. For count, it's safer to rely on the input length or a count from Supabase if available.
       // The actual type of `upsertedData` depends on the Supabase client library version and specific call.
       // For this MVP, we will assume the log message is for feedback and doesn't need strict typing for `upsertedData` itself.
-      console.log(`Successfully upserted data to Supabase. Processed ${transformedListings.length} listings.`);
+      console.log(
+        `Successfully upserted data to Supabase. Processed ${transformedListings.length} listings.`
+      );
       const responseData = {
         message: "Successfully fetched, transformed, and upserted listings.",
         listingsFetched: allListings.length,
@@ -230,18 +233,24 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
         status: 200,
       });
-
     } else {
       console.log("No listings fetched to process.");
-      return new Response(JSON.stringify({ message: "No listings fetched to process." }), {
-        headers: { "Content-Type": "application/json" },
-        status: 200,
-      });
+      return new Response(
+        JSON.stringify({ message: "No listings fetched to process." }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        }
+      );
     }
-
   } catch (error: any) {
     console.error("Error in Edge Function:", error.message);
-    const errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
-    return new Response(`Internal Server Error: ${errorMessage}`, { status: 500 });
+    const errorMessage =
+      typeof error.message === "string"
+        ? error.message
+        : JSON.stringify(error.message);
+    return new Response(`Internal Server Error: ${errorMessage}`, {
+      status: 500,
+    });
   }
 });
