@@ -1,4 +1,7 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// @deno-types="npm:@types/pg"
+import { db } from "../../../app/database/drizzleClient.ts";
+import { owners } from "../../../app/database/schema.ts";
+// import { eq } from "npm:drizzle-orm"; // Not strictly needed for this upsert
 import { createBasicAuthHash } from "../../utils/createBasicAuthHash.ts";
 
 Deno.serve(async () => {
@@ -7,8 +10,8 @@ Deno.serve(async () => {
     const staysNetApiBaseUrl = Deno.env.get("STAYS_NET_API_BASE_URL");
     const staysNetClientId = Deno.env.get("STAYS_NET_CLIENT_ID");
     const staysNetClientSecret = Deno.env.get("STAYS_NET_CLIENT_SECRET");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // const supabaseUrl = Deno.env.get("SUPABASE_URL"); // Not needed for Drizzle
+    // const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // Not needed for Drizzle
 
     // Check if necessary environment variables are set
     if (!staysNetClientId) {
@@ -21,20 +24,10 @@ Deno.serve(async () => {
         status: 400,
       });
     }
-    if (!supabaseUrl) {
-      console.error("SUPABASE_URL is not set.");
-      return new Response("SUPABASE_URL is not set.", { status: 500 });
-    }
-    if (!supabaseServiceRoleKey) {
-      console.error("SUPABASE_SERVICE_ROLE_KEY is not set.");
-      return new Response("SUPABASE_SERVICE_ROLE_KEY is not set.", {
-        status: 500,
-      });
-    }
+    // supabaseUrl and supabaseServiceRoleKey checks removed as they are no longer direct dependencies for this function with Drizzle.
+    // Drizzle client (db) should handle its own connection config.
 
-    // Initialize Supabase client
-    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
-    console.log("Supabase client initialized for import-clients-mvp.");
+    console.log("Drizzle client will be used for database operations."); // New log
 
     const accessToken = createBasicAuthHash(
       staysNetClientId!,
@@ -146,31 +139,40 @@ Deno.serve(async () => {
       const transformedClients = allClients.map(transformClientData);
       console.log(`Transforming ${transformedClients.length} clients...`);
 
-      // Upsert data into Supabase 'owners' table
-      const { data: upsertedData, error: upsertError } = await supabase
-        .from("owners") // Target table is 'owners'
-        .upsert(transformedClients, { onConflict: "id" }); // `id` is the conflict target
-
-      if (upsertError) {
+      console.log(`Upserting ${transformedClients.length} clients using Drizzle...`);
+      let upsertedCount = 0;
+      try {
+        for (const client of transformedClients) {
+          await db.insert(owners).values(client).onConflictDoUpdate({
+            target: owners.id, // Assuming 'id' is the conflict target column in your Drizzle schema for 'owners'
+            set: {
+              name: client.name,
+              email: client.email,
+              phone: client.phone,
+              document_id: client.document_id,
+              // raw_data_stays_net: client.raw_data_stays_net // Uncomment if this column exists and needs updating
+            }
+          });
+          upsertedCount++;
+        }
+        console.log(
+          `Successfully upserted ${upsertedCount} clients to 'owners' table using Drizzle.`
+        );
+      } catch (upsertError) {
         console.error(
-          "Error upserting client data to Supabase:",
+          "Error upserting client data to 'owners' table using Drizzle:",
           upsertError.message
         );
         return new Response(
-          `Failed to upsert client data: ${upsertError.message}`,
+          `Failed to upsert client data using Drizzle: ${upsertError.message}`,
           { status: 500 }
         );
       }
-
-      console.log(
-        `Successfully upserted ${
-          Array.isArray(upsertedData) ? upsertedData.length : 0
-        } clients to Supabase 'owners' table.`
-      );
+      // Update the responseData to reflect the changes
       const responseData = {
-        message: "Successfully fetched, transformed, and upserted clients.",
-        clientsFetched: allClients.length,
-        clientsUpserted: upsertedData ? upsertedData?.length : 0,
+          message: "Successfully fetched, transformed, and upserted clients using Drizzle.",
+          clientsFetched: allClients.length,
+          clientsUpserted: upsertedCount,
       };
       return new Response(JSON.stringify(responseData), {
         headers: { "Content-Type": "application/json" },

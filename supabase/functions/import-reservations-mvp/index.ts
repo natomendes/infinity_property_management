@@ -1,7 +1,7 @@
-import {
-  createClient,
-  SupabaseClient,
-} from "https://esm.sh/@supabase/supabase-js@2";
+// @deno-types="npm:@types/pg"
+import { db } from "../../../app/database/drizzleClient.ts";
+import { reservations } from "../../../app/database/schema.ts"; // Assuming schema for reservations is here
+// import { eq } from "npm:drizzle-orm"; // If needed for specific queries
 import {
   StaysNetRawReservation,
   StaysNetReservationsApiResponse,
@@ -17,8 +17,8 @@ Deno.serve(async () => {
     const staysNetApiBaseUrl = Deno.env.get("STAYS_NET_API_BASE_URL");
     const staysNetClientId = Deno.env.get("STAYS_NET_CLIENT_ID");
     const staysNetClientSecret = Deno.env.get("STAYS_NET_CLIENT_SECRET");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // const supabaseUrl = Deno.env.get("SUPABASE_URL"); // Not needed for Drizzle
+    // const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // Not needed for Drizzle
 
     // Check if necessary environment variables are set
     if (!staysNetApiBaseUrl) {
@@ -34,21 +34,10 @@ Deno.serve(async () => {
         status: 400,
       });
     }
-    if (!supabaseUrl) {
-      return new Response("SUPABASE_URL is not set.", { status: 500 });
-    }
-    if (!supabaseServiceRoleKey) {
-      return new Response("SUPABASE_SERVICE_ROLE_KEY is not set.", {
-        status: 500,
-      });
-    }
+    // supabaseUrl and supabaseServiceRoleKey checks removed as they are no longer direct dependencies for this function with Drizzle.
+    // Drizzle client (db) should handle its own connection config.
 
-    // Initialize Supabase client
-    const supabase: SupabaseClient = createClient(
-      supabaseUrl,
-      supabaseServiceRoleKey
-    );
-    console.log("Supabase client initialized for import-reservations-mvp.");
+    console.log("Drizzle client will be used for database operations for import-reservations-mvp."); // New log
 
     const accessToken: string = createBasicAuthHash(
       staysNetClientId,
@@ -130,29 +119,46 @@ Deno.serve(async () => {
         `Transforming ${transformedReservations.length} reservations...`
       );
 
-      const { data: upsertedData, error: upsertError } = await supabase
-        .from("reservations")
-        .upsert(transformedReservations, { onConflict: "id" });
-
-      if (upsertError) {
+      console.log(`Upserting ${transformedReservations.length} reservations using Drizzle...`);
+      let upsertedCount = 0;
+      try {
+        for (const reservation of transformedReservations) {
+          // Assuming 'reservations' is the Drizzle schema object for the 'reservations' table
+          // and it has an 'id' column that corresponds to transformedReservation.id.
+          await db.insert(reservations).values(reservation).onConflictDoUpdate({
+            target: reservations.id, // Ensure 'reservations.id' is the correct conflict target column
+            set: {
+              short_id: reservation.short_id,
+              listing_id: reservation.listing_id,
+              client_id: reservation.client_id,
+              type: reservation.type,
+              check_in_date: reservation.check_in_date,
+              check_out_date: reservation.check_out_date,
+              guests: reservation.guests,
+              creation_date: reservation.creation_date,
+              // raw_data_stays_net: reservation.raw_data_stays_net // Uncomment if this column exists and needs updating
+            }
+          });
+          upsertedCount++;
+        }
+        console.log(
+          `Successfully upserted ${upsertedCount} reservations to 'reservations' table using Drizzle.`
+        );
+      } catch (upsertError) {
         console.error(
-          "Error upserting reservation data to Supabase:",
+          "Error upserting reservation data to 'reservations' table using Drizzle:",
           upsertError.message
         );
         return new Response(
-          `Failed to upsert reservation data: ${upsertError.message}`,
+          `Failed to upsert reservation data using Drizzle: ${upsertError.message}`,
           { status: 500 }
         );
       }
-
-      console.log(
-        `Successfully upserted data to Supabase 'reservations' table. Processed ${transformedReservations.length} reservations.`
-      );
+      // Update the responseData to reflect the changes
       const responseData = {
-        message:
-          "Successfully fetched, transformed, and upserted reservations.",
-        reservationsFetched: allReservations.length,
-        reservationsUpserted: transformedReservations.length, // Using input length
+          message: "Successfully fetched, transformed, and upserted reservations using Drizzle.",
+          reservationsFetched: allReservations.length,
+          reservationsUpserted: upsertedCount, // Use the count of successfully processed items
       };
       return new Response(JSON.stringify(responseData), {
         headers: { "Content-Type": "application/json" },

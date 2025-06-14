@@ -1,7 +1,7 @@
-import {
-  createClient,
-  SupabaseClient,
-} from "https://esm.sh/@supabase/supabase-js@2";
+// @deno-types="npm:@types/pg"
+import { db } from "../../../app/database/drizzleClient.ts";
+import { listings } from "../../../app/database/schema.ts"; // Assuming schema for listings is here
+// import { eq } from "npm:drizzle-orm"; // If needed for specific queries
 import { createBasicAuthHash } from "../../utils/createBasicAuthHash.ts";
 
 // Define Interfaces
@@ -73,8 +73,8 @@ Deno.serve(async (req: Request) => {
     const staysNetApiBaseUrl = Deno.env.get("STAYS_NET_API_BASE_URL");
     const staysNetClientId = Deno.env.get("STAYS_NET_CLIENT_ID");
     const staysNetClientSecret = Deno.env.get("STAYS_NET_CLIENT_SECRET");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // const supabaseUrl = Deno.env.get("SUPABASE_URL"); // Not needed for Drizzle
+    // const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // Not needed for Drizzle
 
     // Check if necessary environment variables are set
     if (!staysNetClientId) {
@@ -87,24 +87,10 @@ Deno.serve(async (req: Request) => {
         status: 400,
       });
     }
-    if (!supabaseUrl) {
-      console.error("SUPABASE_URL is not set.");
-      return new Response("SUPABASE_URL is not set.", { status: 500 });
-    }
-    if (!supabaseServiceRoleKey) {
-      console.error("SUPABASE_SERVICE_ROLE_KEY is not set.");
-      return new Response("SUPABASE_SERVICE_ROLE_KEY is not set.", {
-        status: 500,
-      });
-    }
+    // supabaseUrl and supabaseServiceRoleKey checks removed as they are no longer direct dependencies for this function with Drizzle.
+    // Drizzle client (db) should handle its own connection config.
 
-    // Initialize Supabase client
-    const supabase: SupabaseClient = createClient(
-      supabaseUrl,
-      supabaseServiceRoleKey
-    );
-
-    console.log("Supabase client initialized.");
+    console.log("Drizzle client will be used for database operations."); // New log
 
     // Get the access token
     const accessToken: string = createBasicAuthHash(
@@ -206,28 +192,50 @@ Deno.serve(async (req: Request) => {
         allListings.map(transformListingData);
       console.log(`Transforming ${transformedListings.length} listings...`);
 
-      const { data: upsertedData, error: upsertError } = await supabase
-        .from("listings")
-        .upsert(transformedListings, { onConflict: "id" });
-
-      if (upsertError) {
-        console.error("Error upserting data to Supabase:", upsertError.message);
-        return new Response(`Failed to upsert data: ${upsertError.message}`, {
-          status: 500,
-        });
+      console.log(`Upserting ${transformedListings.length} listings using Drizzle...`);
+      let upsertedCount = 0;
+      try {
+        for (const listing of transformedListings) {
+          // Assuming 'listings' is the Drizzle schema object for the 'listings' table
+          // and it has an 'id' column that corresponds to transformedListing.id.
+          await db.insert(listings).values(listing).onConflictDoUpdate({
+            target: listings.id, // Ensure 'listings.id' is the correct conflict target column in your Drizzle schema
+            set: {
+              short_id: listing.short_id,
+              internal_name: listing.internal_name,
+              property_type_id: listing.property_type_id,
+              listing_type_id: listing.listing_type_id,
+              subtype: listing.subtype,
+              status: listing.status,
+              multilang_title: listing.multilang_title,
+              address_city: listing.address_city,
+              address_country: listing.address_country,
+              address_street: listing.address_street,
+              address_zipcode: listing.address_zipcode,
+              latitude: listing.latitude,
+              longitude: listing.longitude,
+            }
+          });
+          upsertedCount++;
+        }
+        console.log(
+          `Successfully upserted ${upsertedCount} listings to 'listings' table using Drizzle.`
+        );
+      } catch (upsertError) {
+        console.error(
+          "Error upserting listing data to 'listings' table using Drizzle:",
+          upsertError.message
+        );
+        return new Response(
+          `Failed to upsert listing data using Drizzle: ${upsertError.message}`,
+          { status: 500 }
+        );
       }
-
-      // Supabase typings might mean upsertedData is not directly the array of SupabaseListing,
-      // but often it is or contains it. For count, it's safer to rely on the input length or a count from Supabase if available.
-      // The actual type of `upsertedData` depends on the Supabase client library version and specific call.
-      // For this MVP, we will assume the log message is for feedback and doesn't need strict typing for `upsertedData` itself.
-      console.log(
-        `Successfully upserted data to Supabase. Processed ${transformedListings.length} listings.`
-      );
+      // Update the responseData to reflect the changes
       const responseData = {
-        message: "Successfully fetched, transformed, and upserted listings.",
-        listingsFetched: allListings.length,
-        listingsUpserted: transformedListings.length, // More reliable count based on input
+          message: "Successfully fetched, transformed, and upserted listings using Drizzle.",
+          listingsFetched: allListings.length,
+          listingsUpserted: upsertedCount, // Use the count of successfully processed items
       };
       return new Response(JSON.stringify(responseData), {
         headers: { "Content-Type": "application/json" },
