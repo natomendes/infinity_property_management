@@ -1,9 +1,70 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// Define Interfaces
+interface StaysNetTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+interface StaysNetListingAddress {
+  city?: string;
+  country?: string;
+  street?: string;
+  zipcode?: string;
+}
+
+interface StaysNetLatLng {
+  _f_lat?: number;
+  _f_lng?: number;
+}
+
+interface StaysNetRawListing {
+  _id: string;
+  id: string; // This is the shortId from Stays.net
+  internalName?: string;
+  _idpropertyType?: string;
+  _idtype?: string;
+  subtype?: string;
+  status?: string;
+  _mstitle?: any; // For MVP, 'any' is used. Define more strictly if structure is known.
+  address?: StaysNetListingAddress;
+  latLng?: StaysNetLatLng;
+  // Add any other fields that might come from the API but are not used in SupabaseListing
+  [key: string]: any; // Allows for other properties not explicitly defined
+}
+
+interface StaysNetListingsApiResponse {
+  data: StaysNetRawListing[];
+  metadata?: { // Assuming metadata might exist based on common API patterns
+    total?: number;
+    skip?: number;
+    limit?: number;
+  };
+  // Potentially other top-level properties from Stays.net response
+  [key: string]: any;
+}
+
+interface SupabaseListing {
+  id: string; // Corresponds to StaysNetRawListing._id
+  short_id: string; // Corresponds to StaysNetRawListing.id
+  internal_name?: string;
+  property_type_id?: string;
+  listing_type_id?: string;
+  subtype?: string;
+  status?: string;
+  multilang_title?: any; // For MVP, 'any' is used.
+  address_city?: string;
+  address_country?: string;
+  address_street?: string;
+  address_zipcode?: string;
+  latitude?: number;
+  longitude?: number;
+}
 
 console.log("Hello from Functions!");
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   try {
     // Get environment variables
     const staysNetClientId = Deno.env.get("STAYS_NET_CLIENT_ID");
@@ -30,17 +91,17 @@ serve(async (req) => {
     }
 
     // Initialize Supabase client
-    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const supabase: SupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey);
 
     console.log("Supabase client initialized.");
 
     // Function to get access token from Stays.net
-    async function getStaysNetAccessToken() {
+    async function getStaysNetAccessToken(): Promise<string> {
       const tokenUrl = "https://api.stays.net/external/v1/oauth/token"; // Replace with actual Stays.net token URL if different
       const params = new URLSearchParams();
       params.append("grant_type", "client_credentials");
-      params.append("client_id", staysNetClientId!);
-      params.append("client_secret", staysNetClientSecret!);
+      params.append("client_id", staysNetClientId); // Already checked for existence
+      params.append("client_secret", staysNetClientSecret); // Already checked for existence
 
       try {
         const response = await fetch(tokenUrl, {
@@ -57,24 +118,25 @@ serve(async (req) => {
           throw new Error(`Failed to get access token from Stays.net: ${response.status} ${errorBody}`);
         }
 
-        const tokenData = await response.json();
+        const tokenData: StaysNetTokenResponse = await response.json();
+        if (!tokenData.access_token) {
+            throw new Error("Access token not found in Stays.net response.");
+        }
         return tokenData.access_token;
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching Stays.net access token:", error.message);
         throw error; // Re-throw the error to be caught by the main handler
       }
     }
 
     // Get the access token
-    const accessToken = await getStaysNetAccessToken();
-    if (!accessToken) {
-      // Error is already logged in getStaysNetAccessToken, just return
-      return new Response("Failed to obtain Stays.net access token.", { status: 500 });
-    }
+    const accessToken: string = await getStaysNetAccessToken();
+    // No explicit check for !accessToken needed here due to Promise<string> and error throwing in getStaysNetAccessToken
+
     console.log("Successfully obtained Stays.net access token.");
 
     // Function to fetch listings from Stays.net
-    async function fetchStaysNetListings(token: string, skip: number, limit: number) {
+    async function fetchStaysNetListings(token: string, skip: number, limit: number): Promise<StaysNetListingsApiResponse> {
       const listingsUrl = `https://api.stays.net/external/v1/content/listings?skip=${skip}&limit=${limit}`; // Replace with actual Stays.net listings URL if different
       try {
         const response = await fetch(listingsUrl, {
@@ -90,93 +152,79 @@ serve(async (req) => {
           console.error(`Stays.net listings API error: ${response.status} ${response.statusText}`, errorBody);
           throw new Error(`Failed to fetch listings from Stays.net: ${response.status} ${errorBody}`);
         }
-        return await response.json();
-      } catch (error) {
+        // Assuming the response JSON structure matches StaysNetListingsApiResponse
+        return await response.json() as StaysNetListingsApiResponse;
+      } catch (error: any) {
         console.error("Error fetching Stays.net listings:", error.message);
         throw error;
       }
     }
 
-    // Fetch listings (initial fetch, actual loop will be implemented next)
-    const initialLimit = 20; // Stays.net default/max limit
-    let allListings: any[] = [];
+    const initialLimit = 20;
+    let allListings: StaysNetRawListing[] = [];
     let currentSkip = 0;
-    let totalFetched = 0;
     let hasMore = true;
 
     console.log("Fetching Stays.net listings...");
 
-    // Loop to handle pagination
     while (hasMore) {
-      const listingsData = await fetchStaysNetListings(accessToken, currentSkip, initialLimit);
+      const listingsData: StaysNetListingsApiResponse = await fetchStaysNetListings(accessToken, currentSkip, initialLimit);
       if (listingsData && listingsData.data && listingsData.data.length > 0) {
         allListings = allListings.concat(listingsData.data);
-        totalFetched += listingsData.data.length;
         currentSkip += listingsData.data.length;
-        // Assuming the API indicates if there are more items, e.g., via a total count or a specific flag.
-        // For this MVP, we'll assume if we get less than the limit, there's no more data.
-        // Stays.net API might have a `total` field in `listingsData.metadata` or `listingsData.paging`
-        // e.g. hasMore = totalFetched < listingsData.metadata.total;
-        if (listingsData.data.length < initialLimit) {
+        if (listingsData.data.length < initialLimit || (listingsData.metadata?.total && allListings.length >= listingsData.metadata.total)) {
           hasMore = false;
         }
-        // Safety break for MVP if API doesn't stop sending data or no clear end condition.
-        // if (currentSkip >= 100) { // Limiting to 5 pages for MVP development
-        //   console.warn("Reached development fetch limit (100 listings). Stopping pagination.");
-        //   hasMore = false;
-        // }
       } else {
         hasMore = false;
       }
-      console.log(`Fetched ${totalFetched} listings so far. Current skip: ${currentSkip}. Has more: ${hasMore}`);
+      console.log(`Fetched ${allListings.length} listings so far. Current skip: ${currentSkip}. Has more: ${hasMore}`);
     }
 
     console.log(`Total listings fetched: ${allListings.length}`);
 
     // Function to transform Stays.net listing data to Supabase format
-    function transformListingData(staysNetListing: any): any {
+    function transformListingData(staysNetListing: StaysNetRawListing): SupabaseListing {
       return {
-        id: staysNetListing._id, // Stays.net `_id` -> Supabase `id`
-        short_id: staysNetListing.id, // Stays.net `id` (short ID) -> Supabase `short_id`
+        id: staysNetListing._id,
+        short_id: staysNetListing.id,
         internal_name: staysNetListing.internalName,
         property_type_id: staysNetListing._idpropertyType,
         listing_type_id: staysNetListing._idtype,
         subtype: staysNetListing.subtype,
         status: staysNetListing.status,
-        multilang_title: staysNetListing._mstitle, // Assuming this is already a JSONB compatible object
+        multilang_title: staysNetListing._mstitle,
         address_city: staysNetListing.address?.city,
         address_country: staysNetListing.address?.country,
         address_street: staysNetListing.address?.street,
         address_zipcode: staysNetListing.address?.zipcode,
         latitude: staysNetListing.latLng?._f_lat,
         longitude: staysNetListing.latLng?._f_lng,
-        // Add original Stays.net data for reference, if needed
-        // raw_data: staysNetListing
       };
     }
 
     if (allListings.length > 0) {
-      const transformedListings = allListings.map(transformListingData);
+      const transformedListings: SupabaseListing[] = allListings.map(transformListingData);
       console.log(`Transforming ${transformedListings.length} listings...`);
 
-      // Upsert data into Supabase
-      // The table name is 'listings' and it's in the 'public' schema.
       const { data: upsertedData, error: upsertError } = await supabase
-        .from("listings") // Ensure this is your actual table name
-        .upsert(transformedListings, { onConflict: "id" }); // `id` is the conflict target
+        .from("listings")
+        .upsert(transformedListings, { onConflict: "id" });
 
       if (upsertError) {
         console.error("Error upserting data to Supabase:", upsertError.message);
-        // Consider the nature of the error. If it's a data issue, it might be a 400.
-        // If it's a DB connection or server issue, it's a 500.
         return new Response(`Failed to upsert data: ${upsertError.message}`, { status: 500 });
       }
 
-      console.log(`Successfully upserted ${upsertedData ? upsertedData.length : 0} listings to Supabase.`);
+      // Supabase typings might mean upsertedData is not directly the array of SupabaseListing,
+      // but often it is or contains it. For count, it's safer to rely on the input length or a count from Supabase if available.
+      // The actual type of `upsertedData` depends on the Supabase client library version and specific call.
+      // For this MVP, we will assume the log message is for feedback and doesn't need strict typing for `upsertedData` itself.
+      console.log(`Successfully upserted data to Supabase. Processed ${transformedListings.length} listings.`);
       const responseData = {
         message: "Successfully fetched, transformed, and upserted listings.",
         listingsFetched: allListings.length,
-        listingsUpserted: upsertedData ? upsertedData.length : 0,
+        listingsUpserted: transformedListings.length, // More reliable count based on input
       };
       return new Response(JSON.stringify(responseData), {
         headers: { "Content-Type": "application/json" },
@@ -187,13 +235,12 @@ serve(async (req) => {
       console.log("No listings fetched to process.");
       return new Response(JSON.stringify({ message: "No listings fetched to process." }), {
         headers: { "Content-Type": "application/json" },
-        status: 200, // Or 204 No Content, depending on desired behavior
+        status: 200,
       });
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in Edge Function:", error.message);
-    // Ensure error.message is a string. If it's an object, stringify it or extract relevant info.
     const errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
     return new Response(`Internal Server Error: ${errorMessage}`, { status: 500 });
   }
